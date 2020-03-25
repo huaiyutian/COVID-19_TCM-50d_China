@@ -1,10 +1,10 @@
 # COVID-19_TCM-50d_China
 
-Code for: The role  of transmission control measures during the first 50 days of the COVID-19 epidemic in China
+Code for: An investigation of transmission control measures during the first 50 days of the COVID-19 epidemic in China
 
 ## Citation
 
-The role  of transmission control measures during the first 50 days of the COVID-19 epidemic in China
+An investigation of transmission control measures during the first 50 days of the COVID-19 epidemic in China
 
 Huaiyu Tian, Yonghong Liu, Yidan Li, Chieh-Hsi Wu, Bin Chen, Moritz U.G. Kraemer, Bingying Li1, Jun Cai, Bo Xu, Qiqi Yang, Ben Wang, Peng Yang, Yujun Cui, Yimeng Song, Pai Zheng, Quanyi Wang, Ottar N. Bjornstad, Ruifu Yang, Bryan T. Grenfell, Oliver G. Pybus, and Christopher Dye.
 
