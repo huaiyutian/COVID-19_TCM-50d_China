@@ -1,4 +1,5 @@
 # COVID-19_TCM-50d_China
+[![DOI](https://zenodo.org/badge/249884240.svg)](https://zenodo.org/badge/latestdoi/249884240)
 
 Code for: An investigation of transmission control measures during the first 50 days of the COVID-19 epidemic in China
 
