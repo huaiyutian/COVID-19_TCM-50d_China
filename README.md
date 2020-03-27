@@ -20,6 +20,8 @@ Respiratory illness caused by a novel coronavirus (COVID-19) appeared in China d
 To run, you need a Matlab toolbox called "DRAM": 
 DRAM is a combination of two ideas for improving the efficiency of Metropolis-Hastings type Markov chain Monte Carlo (MCMC) algorithms, Delayed Rejection and Adaptive Metropolis. This page explains the basic ideas behind DRAM and provides examples and Matlab code for the computations.(see http://helios.fmi.fi/~lainema/dram/)
 
+The TCM regression analysis was performed using R3.6.2 on a MAC OS version 10.15.3 (19D76).
+
 ## Data
 
 ### Epidemiological data
