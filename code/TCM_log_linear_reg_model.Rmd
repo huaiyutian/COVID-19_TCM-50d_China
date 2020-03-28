@@ -1,0 +1,602 @@
+---
+title: "Log-linear regression analysis to investigate the associations between transmission
+  controls measures and the number of reported cases in the first seven days of the
+  outbreaks in cities"
+author: "Chieh-Hsi Wu"
+output:
+  pdf_document:
+    extra_dependencies: ["xcolor"]
+    toc: true
+    toc_depth: 3
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+
+Here we investigate the associations between transmission control measures and the number of reported cases in the first week of the outbreaks in cities.
+
+```{r load_library}
+library(readxl)
+library(caret)
+library(lmtest)
+library(boot)
+library(R330)
+```
+
+
+```{r define_functions}
+# function to obtain regression coefficients
+bs = function(formula, data, indices) {
+  # allows boot to select sample
+  d <- data[indices,] 
+  fit <- lm(formula, data=d)
+  return(coef(fit))
+}
+
+
+getSgnChgIndex = function(ci = NULL, a = NULL){
+  colnames(ci) = a
+  rownames(ci) = c("CI level", 
+                   "lower index", "upper index", 
+                   "95% CI lower bound", "95% CI upper bound")
+  
+  ci = t(ci[4:5,])
+  cprCIBndSgn = apply(ci,1,
+        function(z){
+          sgn = z>0; 
+          return(sgn[1]==sgn[2])
+        })
+  return(max(which(cprCIBndSgn)))
+}
+
+```
+
+
+```{r read_in_data}
+covid2019FilePath = ".../data/nCoV-data.xlsx"
+covid2019.df = read_excel(path = covid2019FilePath, sheet = "3resp-7days")
+covid2019Dist.df = read_excel(path = covid2019FilePath, sheet = "dist-296")
+
+covid2019v2.df = read_excel(path = ".../data/nCoV-data_0323.xlsx", 
+                            sheet = "3resp-7days")
+```
+
+# Processing the data
+
+Some of the cities have a inflow from Wuhan recorded as 0, which causes calculations to run into an error when we use it as an offset variable.
+To resolve this issue, 0 values are changed to $10^{-6}$, which is equivalent to only one person arriving to a city from Wuhan.
+
+```{r process_totalflow, echo = F}
+covid2019.df$new.totalflow_million = covid2019.df$totalflow_million
+covid2019.df$new.totalflow_million[covid2019.df$totalflow_million == 0] = 1e-6
+```
+
+The arrival time is processed so that 31 December 2019 is coded as day 0.
+
+```{r process_arrival_time}
+covid2019.df$new.arr.time  = covid2019.df$arr.time - 1
+```
+
+The timing of suspending intra-city public transport is processed so that 31 December 2019 is coded as day 0.
+
+```{r process_TTCM_bus}
+bus.resp.tab = table(covid2019.df$Bus.resp)
+bus.resp.tab
+bus.date.tab1 = table(covid2019.df$Bus.date[which(covid2019.df$Bus.resp==1)])
+bus.date.tab1
+
+covid2019.df$new.Bus.date = covid2019.df$Bus.date - 1 
+new.bus.date.tab1 = table(covid2019.df$new.Bus.date[which(covid2019.df$Bus.resp==1)])
+new.bus.date.tab1
+
+covid2019.df$new.Bus.date[which(covid2019.df$Bus.resp==0)] = 0
+new.bus.date.tab = table(covid2019.df$new.Bus.date)
+new.bus.date.tab
+
+## Sanity check
+## Should return 0(s).
+# bus.date.tab1 - new.bus.date.tab1
+# (as.numeric(names(bus.date.tab1)) - 1) - as.numeric(names(new.bus.date.tab1))
+# bus.date.tab1 - new.bus.date.tab[-1]
+# (as.numeric(names(bus.date.tab1)) - 1) - as.numeric(names(new.bus.date.tab[-1]))
+# bus.resp.tab["0"] - new.bus.date.tab["0"]
+## Sanity check complete
+```
+
+The timing of suspending inter-city passenger traffic is processed so that 31 December 2019 is coded as day 0.
+
+
+```{r process_TTCM_railway, echo = F}
+rail.resp.tab =  table(covid2019.df$Railway.resp)
+rail.resp.tab
+rail.date.tab1 = table(covid2019.df$Railway.date[which(covid2019.df$Railway.resp == 1)])
+rail.date.tab1
+
+
+covid2019.df$new.Railway.date = covid2019.df$Railway.date - 1
+new.rail.date.tab1 = table(covid2019.df$new.Railway.date[which(covid2019.df$Railway.resp == 1)])
+new.rail.date.tab1
+
+covid2019.df$new.Railway.date[which(covid2019.df$Railway.resp == 0)] = 0
+new.rail.date.tab = table(covid2019.df$new.Railway.date)
+new.rail.date.tab
+
+## Sanity check
+## Should return 0(s).
+# rail.date.tab1 - new.rail.date.tab1
+# (as.numeric(names(rail.date.tab1)) - 1) - as.numeric(names(new.rail.date.tab1))
+# rail.date.tab1 - new.rail.date.tab[-1]
+# (as.numeric(names(rail.date.tab1)) - 1) - as.numeric(names(new.rail.date.tab[-1]))
+# rail.resp.tab["0"] - new.rail.date.tab["0"]
+## Sanity check complete
+
+```
+
+
+The timing of closure of entertainment venues and banning public gathering is processed so that 31 December 2019 is coded as day 0.
+
+
+```{r process_TTCM_enter, echo = F}
+enter.resp.tab = table(covid2019.df$Enter.resp)
+enter.resp.tab
+enter.date.tab1 = table(covid2019.df$Enter.date[which(covid2019.df$Enter.resp == 1)])
+enter.date.tab1
+
+covid2019.df$new.Enter.date = covid2019.df$Enter.date - 1
+new.enter.date.tab1 = table(covid2019.df$new.Enter.date[which(covid2019.df$Enter.resp == 1)])
+new.enter.date.tab1
+
+covid2019.df$new.Enter.date[which(covid2019.df$Enter.resp == 0)] = 0
+new.enter.date.tab = table(covid2019.df$new.Enter.date)
+new.enter.date.tab 
+
+## Sanity check
+## Should return 0(s).
+# enter.date.tab1 - new.enter.date.tab1
+# (as.numeric(names(enter.date.tab1)) - 1) - as.numeric(names(new.enter.date.tab1))
+# enter.date.tab1 - new.enter.date.tab[-1]
+# (as.numeric(names(enter.date.tab1)) - 1) - as.numeric(names(new.enter.date.tab[-1]))
+# enter.resp.tab["0"] - new.enter.date.tab["0"]
+## Sanity check complete
+```
+
+
+
+# Fitting a log-linear regression model
+
+First we create a new response variable which is incidence per capita divided by the inflow Wuhan. 
+
+```{r create_standardised_7day_cases}
+covid2019.df$std.sevendays.cucase = 
+  covid2019.df$sevendays.cucase/
+  (covid2019.df$Pop_million_2018*covid2019.df$new.totalflow_million)
+```
+
+After some exploration we found that there's non-linear relationship between dependent variable and the timing of closure of entertainment venues and banning public gathering.
+Therefore we have used a square term of that timeing variable to take care of that.
+The log-linear model summarised below.
+
+```{r lm_add}
+yfc.resp.date.lm = lm(log(std.sevendays.cucase) ~ new.arr.time + log10.Dis.WH +
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date +
+                          Enter.resp + new.Enter.date + I(new.Enter.date^2),
+                        data = covid2019.df)
+summary(yfc.resp.date.lm)
+```
+
+The influential plots indicates an apparent influential point.
+
+
+```{r lm_add_diagnostics}
+par(mfrow = c(2, 4))
+influenceplots(yfc.resp.date.lm)
+```
+
+For interpretabiliy, instead of having a squared we discretise the timing variable, and re-fit the model with the timing variable.
+
+```{r lm1_add}
+covid2019.df$new.Enter.date.cat = cut(covid2019.df$new.Enter.date, c(-1, c(23, 24, 25, 36) -1))
+covid2019.df$new.Enter.date.cat = as.numeric(covid2019.df$new.Enter.date.cat) -1 
+
+yfc.resp.date.lm1 = lm(log(std.sevendays.cucase) ~ new.arr.time + log10.Dis.WH +
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date +
+                          Enter.resp +  new.Enter.date.cat,
+                        data = covid2019.df)
+summary(yfc.resp.date.lm1)
+```
+
+After the discretising the timing variable, the observation flagged as an influential is no longer problematic.
+The Cook's distances do not indicate presence of outliers. 
+Here are a number of observations indicated as having large hat values.
+However, they are not too far away from they cutoff, and their hat values are quite similar to each other.
+So it is hard to justigy removing only a subset of those points, but there are quite a few of them, so we leave them in the model.
+
+
+```{r lm1_infl_plots}
+par(mfrow = c(2,4))
+influenceplots(yfc.resp.date.lm1)
+```
+
+The studentized Breusch-Pagan test provides evidence for heterscedasticity in the residuals.
+
+```{r yfc.resp.date.lm1_test}
+lmtest::bptest(yfc.resp.date.lm1)
+```
+
+After some exploration, we found that heteroscedasticity occurs when we include either the log10 of distance to Wuhan, and the binary and timing varibles for closure of entertainment venues and banning public gathrings.
+Coincidentally, the models above show that we have no evidence for the the associations between those three variables and the dependent variable.
+
+The conclusions regarding the rest of the variables do not change.
+
+```{r lm2_fitted_vs_residuals, echo = F}
+yfc.resp.date.lm2 = lm(log(std.sevendays.cucase) ~ new.arr.time + 
+                          Bus.resp + new.Bus.date +
+                          Enter.resp + new.Enter.date.cat ,
+                        data = covid2019.df)
+summary(yfc.resp.date.lm2)
+```
+
+The plot of studentised residuals does not indicate evident non-linearity in the residuals
+
+```{r lm2_add_diagnostics, fig.height = 6, fig.width = 6.5}
+par(mfrow = c(2,2))
+plot(yfc.resp.date.lm2)
+```
+
+The influence plots do provide strong indication any points that are particularly influential and need to be removed.
+
+```{r yfc_resp_date_lm2_influ_plot}
+par(mfrow = c(2,4))
+influenceplots(yfc.resp.date.lm2)
+```
+
+The studentized Breusch-Pagan test dose not provide evidence for heteroscedasticity in the residuals.
+
+```{r yfc.resp.date.lm2_bptest}
+lmtest::bptest(yfc.resp.date.lm2)
+```
+
+```{r lm2_add_est}
+yfc.resp.date.lm2.est = coef(summary(yfc.resp.date.lm2))
+yfc.resp.date.lm2.est.tab = cbind(yfc.resp.date.lm2.est[,"Estimate"], 
+yfc.resp.date.lm2.est[,"Estimate"]-1.96*yfc.resp.date.lm2.est[,"Std. Error"],
+yfc.resp.date.lm2.est[,"Estimate"]+1.96*yfc.resp.date.lm2.est[,"Std. Error"])
+colnames(yfc.resp.date.lm2.est.tab) = c("Coefficient", "95% CI upper bound", "95% CI lower bound")
+round(yfc.resp.date.lm2.est.tab, 2)
+
+```
+
+# Diagnostics
+
+## Check for spatial correlation in the residuals
+
+Here we check whether cities that are closer together are going have more similar residuals
+
+```{r create_dist_matrix_for_cities}
+covid2019DistMat = as.matrix(covid2019Dist.df[,-1], nrow = 296, ncol = 296)
+rownames(covid2019DistMat) = covid2019Dist.df$code
+colnames(covid2019DistMat) = covid2019Dist.df$code
+```
+
+
+```{r check_the_order_of_the_matrix}
+all(covid2019.df$Code == rownames(covid2019DistMat)) 
+all(covid2019.df$Code == colnames(covid2019DistMat)) 
+```
+
+
+
+```{r create_residual_dist_mat}
+yfc.resp.date.lm2.res = residuals(yfc.resp.date.lm2)
+res.dist = as.matrix(dist(yfc.resp.date.lm2.res))
+cityDist = covid2019DistMat
+# 262 is NA by mistake in the input file
+diag(cityDist)[262] = 0 
+```
+
+```{r get_upper_dist_matrix}
+## Only extract the values of the upper triangle of the matrix as
+## The lower triangle repeats the upper triange values.
+res.dist.unique = res.dist[upper.tri(res.dist)]
+city.dist.unique = cityDist[upper.tri(cityDist)]
+length(res.dist.unique) == length(city.dist.unique)
+
+## Sanity checks
+## The codes below should all return TRUE(s).
+# res.dist[1,2] == res.dist.unique[1]
+# res.dist[1:2,3] == res.dist.unique[1+1:2]
+# res.dist[1:4,5] == res.dist.unique[6+1:4]
+# res.dist[1:5,6] == res.dist.unique[10+1:5]
+
+# cityDist[1,2] == city.dist.unique[1]
+# cityDist[1:2,3] == city.dist.unique[1+1:2]
+# cityDist[1:4,5] == city.dist.unique[6+1:4]
+#cityDist[1:5,6] == city.dist.unique[10+1:5]
+## Sanity checks complete
+```
+
+There is no evident correlation between the pairiwse residual differences and pairwise city differences.
+
+```{r calculate_correlation_between_geo_distance_and_residual_diff}
+cor((res.dist.unique), city.dist.unique)
+```
+
+Here we check whether the peak times of inflow from Wuhan correlations with the residuals.
+The peak inflow is calculated for the period from 11 January 2020 to 23 January 2020.
+11 January is 15 days before the Chinese New Year, while 23 January is day of Wuhan shutdown.
+
+```{r}
+all(covid2019.df$Code == covid2019v2.df$Code)
+par(mfrow = c(1,2))
+plot(x = covid2019v2.df$peak_time2, 
+     y = yfc.resp.date.lm2.res)
+```
+
+We do not find evident correlation between the residuals peak times of inflow from Wuhan.
+
+```{r}
+cor(x = covid2019v2.df$peak_time2, 
+    y = yfc.resp.date.lm2.res, use="pairwise.complete.obs")
+```
+
+
+
+## Check for temporal correlation in the residuals
+
+Here we check whether there's some temporal autocorrelation in the data.
+To this end we evaluate the strength of evidence for the association between the mean residuals with arrival time on day j and the residuals with arrival time on day j+1. 
+
+```{r Calculate_the_mean_residual_value_for_each_day}
+## Get the unqiue arrival times
+arr.time.level = sort(unique(covid2019.df$arr.time))
+
+## Calculate the mean arrival time for each arrival time value 
+res.mean.by.time = vector(length = length(arr.time.level))
+for(i in 1:length(arr.time.level)){
+  # get the residual values for a given arrival time
+  res.per.arrT = yfc.resp.date.lm2.res[covid2019.df$arr.time == arr.time.level[i]]
+  res.mean.by.time[i] = mean(res.per.arrT)
+}
+names(res.mean.by.time) = arr.time.level
+```
+
+```{r plot_arr_time_res}
+plot(covid2019.df$arr.time, 
+     yfc.resp.date.lm2.res,
+     xlab = "Time", ylab = "Residuals")
+lines(x = arr.time.level, y = res.mean.by.time, 
+      col = "red", lwd = 2)
+```
+
+
+```{r get_valid_prev_days}
+arr.time.level.prev = arr.time.level[-length(arr.time.level)]
+arr.time.level.prev
+names(arr.time.level.prev) = arr.time.level[-1]
+```
+
+The earliest arrival time is 20 January.
+So the residuals with this arrival time will not have a covariate value.
+
+```{r identify_the_imediate_previous_date}
+prev.day = arr.time.level.prev[as.character(covid2019.df$arr.time)]
+table(covid2019.df$arr.time - prev.day, useNA = "always")
+
+# Sanity check
+# table(covid2019.df$arr.time - 1)[-1] == table(prev.day)
+```
+
+There is not evidence for an association between the mean residuals with arrival time on day j and the residuals with arrival time on day j + 1.
+
+```{r determine_Time_autocorrelation}
+prev.mean = res.mean.by.time[as.character(prev.day)]
+summary(lm(yfc.resp.date.lm2.res ~ prev.mean))
+```
+
+## Check the normality assumption
+
+The disribution of the residuals is fairly symmetric albeit the longer right tail.
+As a result, we see moderate departure from normality in the Q-Q plots.
+
+```{r qq_plot}
+#pdf(file = "/Users/chwu/Documents/research/nCov-2019_TCM/logLinearNormality.pdf",
+#    width = 9, height = 4.5)
+par(mfrow = c(1,2), mar = c(5,4,1,2)+0.2)
+
+hist(yfc.resp.date.lm2.res, 
+     xlab = "Residuals", main = "",
+     nclass = 20, prob = T)
+yfc.resp.date.lm2.res2 = 
+  yfc.resp.date.lm2.res[which(yfc.resp.date.lm2.res < abs(min(yfc.resp.date.lm2.res)))]
+normFitDens = dnorm(-100:100/10, mean = -0.5642705, sd = 2.12)
+lines(-100:100/10, normFitDens)
+
+qqnorm(yfc.resp.date.lm2.res, main ="", col = "#00000077", pch = 16)
+qqline(yfc.resp.date.lm2.res, col="red")
+#dev.off()
+
+```
+
+The Shapiro-Wilk test provides evidence for departure of normality in the errors.
+
+```{r yfc.resp.date.lm2_shapiro_test}
+shapiro.test(yfc.resp.date.lm2.res)
+```
+
+# Bootstrap analysis
+
+By central limit theorem, the moderate departure from normality, should not be a problem.
+However, just to be safe, we evaluate the bootstrap esimtates of the regression coefficients, 95\% CI and p-values.
+The bootstrap esimtates does not assume a parametric distribution for the errors and therefore is a suitable alternative when departure of normality would be a problem.
+
+## Simulate bootstrap replicates
+
+We simulated 10000 bootstrap replicates.
+
+
+```{r get_boot_strap_rep}
+set.seed(777)
+# bootstrapping with 1000 replications
+results <- boot(data=covid2019.df, statistic=bs,
+   R=10000, formula=log(std.sevendays.cucase) ~ new.arr.time + 
+                          Bus.resp + new.Bus.date +
+                          Enter.resp + new.Enter.date.cat)
+```
+
+The bias is generally very small compare to the coefficients, which indicates the bootstrap esimates are very similar to the least squre estimates above.
+This confirms that the moderate departure of normality is not an issue this case.
+
+
+```{r bootstrap_results}
+# view results
+print(results)
+```
+
+The bootstrap estimates for the coefficients are
+
+```{r bootstrap_estimate}
+round(colMeans(results$t), 2)
+```
+
+## Normality of the bootstrap statistics
+
+### Intercept and the adjusting variable
+
+```{r normality_of_bootstrap_statistics_of_intercept_and_adjusted_variables}
+par(mfrow = c(2,2), mar = c(5, 5, 2, 2) + 0.2)
+hist(results$t[,1], nclass = 50, prob = T,
+     xlab = "bootstrap replicates", main = "Intercept")
+qqnorm(results$t[,1], main =  "Intercept", ylab = "Sampled quantiles\n(bootstrap)")
+
+hist(results$t[,2], nclass = 50, prob = T,
+     xlab = "bootstrap replicates", main = "Arrival time")
+qqnorm(results$t[,2], main =  "Arrival time", ylab = "Sampled quantiles\n(bootstrap)")
+```
+
+### Transmission control measure variables
+
+```{r normality_of_bootstrap_statistics_of_TCM_variables}
+par(mfrow = c(2,4), mar = c(5, 5, 2, 2) + 0.2)
+hist(results$t[,3], nclass = 50, prob = T,
+     xlab = "bootstrap replicates", main = expression(M[S]))
+qqnorm(results$t[,3], main = expression(M[S]), 
+       ylab = "Sampled quantiles\n(bootstrap)")
+qqline(results$t[,3], col = "red")
+
+hist(results$t[,4], nclass = 50, prob = T,
+     xlab = "bootstrap replicates", main  = expression("T"[S]))
+qqnorm(results$t[,4], main = expression("T"[S]), 
+       ylab = "Sampled quantiles\n(bootstrap)")
+qqline(results$t[,4], col = "red")
+
+hist(results$t[,5], nclass = 50, prob = T,
+     xlab = "bootstrap replicates", main = expression(M[B]))
+qqnorm(results$t[,5], main = expression(M[B]), 
+       ylab = "Sampled quantiles\n(bootstrap)")
+qqline(results$t[,5], col = "red")
+
+hist(results$t[,6], nclass = 50, prob = T,
+     xlab = "bootstrap replicates", main  = expression("T"[B]))
+qqnorm(results$t[,6], main = expression("T"[B]), 
+       ylab = "Sampled quantiles\n(bootstrap)")
+qqline(results$t[,6], col = "red")
+```
+
+## Confidence intervals
+
+The confidence intervals calculated by using the adjusted bootstrap percentile for each coefficient is given by
+
+```{r bootstrap_CI}
+# get 95% confidence intervals
+boot.ci.results.tab = sapply(c(1:6),
+       function(varIndex  = NULL){
+         boot.ci(results, type = "bca", index = varIndex)$bca
+       })
+boot.ci.tab = t(boot.ci.results.tab)[,4:5]
+rownames(boot.ci.tab) = names(coef(yfc.resp.date.lm2))
+colnames(boot.ci.tab) = paste(c("95% lower bound", "95% lower bound"))
+round(boot.ci.tab,2)
+```
+
+## P-values suggested by the confidence intervals
+
+The p-value is defined as 1 minus the highest confidence level that produces a confidence interval excluding 0.
+While we might be able to assume that the bootstrap statistics follow a normal distribution, this method is chosen so that the p-values and confidence intervals are consistent.
+The p-values are calculated with sufficient precision to round up to 2 decimal places.
+
+### Intercept 
+
+```{r pval_by_boostrap_ci_intercept}
+a1 = c(500:520)/1000
+
+ci1 = sapply(a1, function(a){
+  boot.ci(results, type= c("bca"), 
+        conf = a, index=1)$bca
+})
+
+round(1 - a1[getSgnChgIndex(ci = ci1, a = a1)],2)
+```
+
+### Arrival time
+
+```{r pval_by_boostrap_ci_arrival_time}
+boot.ci(results, type= c("bca"), 
+        conf = 0.999, index=2)$bca
+1 - 0.999
+```
+
+### Binary variable for suspension of the intra-city public transport
+
+```{r pval_by_boostrap_ci_M_S}
+a3 = c(9980:9990)/10000
+ci3 = sapply(a3, function(a){
+   boot.ci(results, type= c("bca"), 
+         conf = a, index=3)$bca
+  })
+#ci3[,c(3:4)]
+#1-a3[3]
+
+1 - a3[getSgnChgIndex(ci = ci3, a = a3)]
+```
+
+### Timing of suspension of the intra-city public transport
+
+```{r pval_by_boostrap_ci_T_S}
+a4 = c(9970:9980)/10000
+ci4 = sapply(a4, function(a){
+   boot.ci(results, type= c("bca"), 
+         conf = a, index=4)$bca
+  })
+
+1 - a4[getSgnChgIndex(ci = ci4, a = a4)]
+
+```
+
+### Binary variable for closure of entertainment venues and banning of public gatherings
+
+```{r pval_by_boostrap_ci_M_B}
+a5 = c(9900:9910)/10000
+
+ci5 = sapply(a5, function(a){
+  boot.ci(results, type= c("bca"), 
+        conf = a, index=5)$bca
+})
+
+1 - a5[getSgnChgIndex(ci = ci5, a = a5)]
+```
+
+### Timing of closure of entertainment venues and banning of public gatherings
+
+```{r pval_by_boostrap_ci_T_B}
+a6 = c(990:999)/1000
+
+ci6 = sapply(a6, function(a){
+  boot.ci(results, type= c("bca"), 
+        conf = a, index=6)$bca
+})
+
+1 - a6[getSgnChgIndex(ci = ci6, a = a6)]
+```
