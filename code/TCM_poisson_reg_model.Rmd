@@ -1,0 +1,296 @@
+---
+title: Poisson regression analysis to investigate the associations between transmission
+  controls measures and the number of reported cases in the first seven days of the
+  outbreaks in cities
+author: "Chieh-Hsi Wu"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+Here we investigate the associations between transmission control measures and the number of reported cases in the first week of the outbreaks in cities.
+
+
+```{r read_in_data}
+library(R330)
+library(readxl)
+library(car)
+library(lmtest)
+
+covid2019FilePath = ".../data/nCoV-data.xlsx"
+covid2019.df = read_excel(path = covid2019FilePath, sheet = "3resp-7days")
+
+```
+
+# Processing the data
+
+Some of the cities have a inflow from Wuhan recorded as 0, which causes calculations to run into an error when we use it as an offset variable.
+To resolve this issue, 0 values are changed to $10^{-6}$, which is equivalent to only one person arriving to a city from Wuhan.
+
+```{r process_totalflow}
+covid2019.df$new.totalflow_million = covid2019.df$totalflow_million
+covid2019.df$new.totalflow_million[covid2019.df$totalflow_million == 0] = 1e-6
+```
+
+The arrival time is processed so that 31 December 2019 is coded as day 0.
+
+```{r process_arr.time}
+covid2019.df$new.arr.time = covid2019.df$arr.time - 1
+```
+
+The timing of suspending intra-city public transport is processed so that 31 December 2019 is coded as day 0.
+
+```{r process_TTCM_bus}
+bus.resp.tab = table(covid2019.df$Bus.resp)
+bus.resp.tab
+bus.date.tab1 = table(covid2019.df$Bus.date[which(covid2019.df$Bus.resp==1)])
+bus.date.tab1
+
+covid2019.df$new.Bus.date = covid2019.df$Bus.date - 1 
+new.bus.date.tab1 = table(covid2019.df$new.Bus.date[which(covid2019.df$Bus.resp==1)])
+new.bus.date.tab1
+
+covid2019.df$new.Bus.date[which(covid2019.df$Bus.resp==0)] = 0
+new.bus.date.tab = table(covid2019.df$new.Bus.date)
+new.bus.date.tab
+
+## Sanity check
+## Codes below should return (0)
+# bus.date.tab1 - new.bus.date.tab1
+# (as.numeric(names(bus.date.tab1)) - 1) - as.numeric(names(new.bus.date.tab1))
+# bus.date.tab1 - new.bus.date.tab[-1]
+# (as.numeric(names(bus.date.tab1)) - 1) - as.numeric(names(new.bus.date.tab[-1]))
+# bus.resp.tab["0"] - new.bus.date.tab["0"]
+## Sanity check complete
+```
+
+The timing of suspending inter-city passenger traffic is processed so that 31 December 2019 is coded as day 0.
+
+```{r process_TTCM_railway}
+rail.resp.tab =  table(covid2019.df$Railway.resp)
+rail.resp.tab
+rail.date.tab1 = table(covid2019.df$Railway.date[which(covid2019.df$Railway.resp == 1)])
+rail.date.tab1
+
+
+covid2019.df$new.Railway.date = covid2019.df$Railway.date - 1
+new.rail.date.tab1 = table(covid2019.df$new.Railway.date[which(covid2019.df$Railway.resp == 1)])
+new.rail.date.tab1
+
+covid2019.df$new.Railway.date[which(covid2019.df$Railway.resp == 0)] = 0
+new.rail.date.tab = table(covid2019.df$new.Railway.date)
+new.rail.date.tab
+
+## Sanity check
+## Codes below should return 0(s)
+# rail.date.tab1 - new.rail.date.tab1
+# (as.numeric(names(rail.date.tab1)) - 1) - as.numeric(names(new.rail.date.tab1))
+# rail.date.tab1 - new.rail.date.tab[-1]
+# (as.numeric(names(rail.date.tab1)) - 1) - as.numeric(names(new.rail.date.tab[-1]))
+# rail.resp.tab["0"] - new.rail.date.tab["0"]
+## Sanity check complete
+```
+
+The timing of closure of entertainment venues and banning public gathering is processed so that 31 December 2019 is coded as day 0.
+
+```{r process_TTCM_enter}
+enter.resp.tab = table(covid2019.df$Enter.resp)
+enter.resp.tab
+enter.date.tab1 = table(covid2019.df$Enter.date[which(covid2019.df$Enter.resp == 1)])
+enter.date.tab1
+
+covid2019.df$new.Enter.date = covid2019.df$Enter.date - 1
+new.enter.date.tab1 = table(covid2019.df$new.Enter.date[which(covid2019.df$Enter.resp == 1)])
+new.enter.date.tab1
+
+covid2019.df$new.Enter.date[which(covid2019.df$Enter.resp == 0)] = 0
+new.enter.date.tab = table(covid2019.df$new.Enter.date)
+new.enter.date.tab 
+
+## Sanity check
+## Codes should return 0(s)
+# enter.date.tab1 - new.enter.date.tab1
+# (as.numeric(names(enter.date.tab1)) - 1) - as.numeric(names(new.enter.date.tab1))
+# enter.date.tab1 - new.enter.date.tab[-1]
+# (as.numeric(names(enter.date.tab1)) - 1) - as.numeric(names(new.enter.date.tab[-1]))
+# enter.resp.tab["0"] - new.enter.date.tab["0"]
+## Sanity check complete
+```
+
+# Regression analysis
+
+## Poisson regression
+
+The analysis using a Poisson regression model is presented below.
+
+```{r glm_add1}
+yfc.resp.date.glm1 = glm(sevendays.cucase ~ new.arr.time + log10.Dis.WH+
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date + 
+                          Enter.resp + new.Enter.date +
+                          offset(log(Pop_million_2018*new.totalflow_million)),
+                        family = "poisson",
+                        data = covid2019.df)
+summary(yfc.resp.date.glm1)
+```
+
+There appears to be three influential points.
+
+```{r glm_add1_infl_pts, fig.height=5, fig.width=5}
+influencePlot(yfc.resp.date.glm1)
+```
+
+Below is a visualisation of the influential points indicators.
+
+```{r glm_add1_infl_plots, fig.height=6.5, fig.width=6}
+influenceplots(yfc.resp.date.glm1)
+```
+
+Removing the three influential points does not affect the conclusions.
+
+```{r r glm_add2}
+yfc.resp.date.glm2 = glm(sevendays.cucase ~ new.arr.time + log10.Dis.WH+
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date + 
+                          Enter.resp + new.Enter.date +
+                          offset(log(Pop_million_2018*new.totalflow_million)),
+                        family = "poisson",
+                        data = covid2019.df[-c(1, 150, 157),])
+summary(yfc.resp.date.glm2)
+```
+
+There appears to be more observations with outstanding Cook's distances.
+
+```{r glm_add2_infl_pts, fig.height=5, fig.width=5}
+influencePlot(yfc.resp.date.glm2)
+```
+
+The plots below show that the outstanding Cook's distance a substantially far apart from the rest.
+
+```{r glm_add2_infl_plots, fig.height=6.5, fig.width=6}
+influenceplots(yfc.resp.date.glm2)
+```
+
+The conclusions are not affected by removing the observations with the outstanding Cook's distances.
+
+
+```{r glm_add}
+yfc.resp.date.glm = glm(sevendays.cucase ~ new.arr.time + log10.Dis.WH+
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date + 
+                          Enter.resp + new.Enter.date +
+                          offset(log(Pop_million_2018*new.totalflow_million)),
+                        family = "poisson",
+                        data = covid2019.df[-c(1, 7, 150, 157, 226),])
+summary(yfc.resp.date.glm)
+```
+
+There still are several data points with large Cook's Distances.
+However there are a large number of these and by standard practice, it would be too many to remove.
+In general, we should only remove one or two influential points, as this is to check that the results observed is not just purely the result of one or two points.
+If too many points are removed, the defies the purpose of this check.
+
+```{r glm_add_infl, fig.height=6.5, fig.width=6}
+influenceplots(yfc.resp.date.glm)
+```
+
+```{r ci}
+yfc.resp.date.glm.est = coef(summary(yfc.resp.date.glm))
+yfc.resp.date.glm.est.tab = cbind(yfc.resp.date.glm.est[,"Estimate"], 
+yfc.resp.date.glm.est[,"Estimate"]-1.96*yfc.resp.date.glm.est[,"Std. Error"],
+yfc.resp.date.glm.est[,"Estimate"]+1.96*yfc.resp.date.glm.est[,"Std. Error"])
+colnames(yfc.resp.date.glm.est.tab) = c("Estimate", "Lower 95% CI", "Upper 95% CI")
+round(yfc.resp.date.glm.est.tab, 2)
+```
+
+If the model is correct, the Pearson residuals should have constant spread across fitted values. 
+However, the plot below clearly shows that this is not the case---there is evident heteroscedasticity in the pearson residuals.
+
+
+```{r glm_pearson_res, fig.height= 4.5, fig.width=5.5}
+plot((fitted(yfc.resp.date.glm)), 
+     residuals(yfc.resp.date.glm, type= "pearson"),
+     xlab = "Fitted values", ylab = "Pearson residuals")
+```
+
+Due to these issues we report the parameter estimates from the regression with influential points excluded as that give us the most conservative estimates.
+
+## Quasi-Poisson regression 
+
+
+A quasi-Poisson regression model is fitted to see whether it can rectify this problem.
+This model uses a quasi-likelihood and suggests that there is no evidence that any of the coefficients are significant.
+This is dubious as we demonstrate in the next step.
+
+```{r yfc.resp.date.qp.glm}
+yfc.resp.date.qp.glm = glm(sevendays.cucase ~ new.arr.time + log10.Dis.WH+
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date + 
+                          Enter.resp + new.Enter.date +
+                          offset(log(Pop_million_2018*new.totalflow_million)),
+                        family = "quasipoisson",
+                        data = covid2019.df[-c(1, 7, 150, 157, 226),])
+summary(yfc.resp.date.qp.glm)
+```
+
+We consider the arrival time, and plot it against the logarithem of the number of reported cases divided by the population size and inflow from Wuhan.
+It is apparente that the arrival time increases as the number of reported cases increases.
+
+```{r arrT_cumucase_plot, fig.height= 4.5, fig.width=5.5}
+par(mar = c(5, 6, 2, 1) + 0.2)
+log.std.seven.cucase = log(covid2019.df$sevendays.cucase/
+                             (covid2019.df$Pop_million_2018*covid2019.df$new.totalflow_million))
+plot(covid2019.df$arr.time,log.std.seven.cucase,
+     xlab = "Arrival time", 
+     ylab = "The number of case reported in the\nfirst seven days of the outbreaks in cities")
+```
+
+However, the quasi-Poisson regression again indicates the no evidence for coefficient of arrival time.
+This could be because of the heteroscedasticity in the Pearson residuals is extremely severe, the quasi-Poisson regression is over-compensating and is unable to detect any signal in the data efficiently.
+Furthermore, the plot below shows that the quasi-Poisson model provides no indication that the heteroscedasticity in the Pearson residuals have been rectified.
+(Pearson residuals in the plot is from the full quasi-Poisson model including all the control measure varaibles.)
+Therefore, we are also uncertain about the reliability of the quasi-Poisson regression analysis.
+
+```{r yfc_arr_time_qp_glm, fig.height= 5, fig.width=5.5}
+yfc.arr.time.qp.glm = glm(sevendays.cucase ~ new.arr.time +
+                          offset(log(Pop_million_2018*new.totalflow_million)),
+                        family = "quasipoisson",
+                        data = covid2019.df[-c(1, 7, 150, 157, 226),])
+summary(yfc.arr.time.qp.glm)
+```
+
+
+```{r glm_arrTqp_pearson_res, fig.height = 4.5, fig.width = 5.5}
+par(mar = c(5, 5, 5, 2) + 0.2)
+plot((fitted(yfc.resp.date.qp.glm)), 
+     residuals(yfc.resp.date.qp.glm, type= "pearson"),
+     xlab = "Fitted values", 
+     ylab = "Pearson residual")
+```
+
+## Negative binomial regression
+
+A negative regression model is fitted to see whether it can rectify the heteroscedasticity in the Pearson residuals.
+
+```{r yfc.resp.date.nb.glm}
+library(MASS)
+yfc.resp.date.nb.glm = glm.nb(sevendays.cucase ~ new.arr.time + log10.Dis.WH+
+                          Bus.resp + new.Bus.date + 
+                          Railway.resp + new.Railway.date + 
+                          Enter.resp + new.Enter.date +
+                          offset(log10(Pop_million_2018*new.totalflow_million)),
+                        data = covid2019.df[-c(1, 7, 150, 157, 226),])
+summary(yfc.resp.date.nb.glm)
+
+```
+
+The plot below shows that the Pearson residuals of the negative-binomial regression still display heteroscedasticity.
+And therefore, we are also uncertain about the reliability of the results from the negative binomial regression.
+
+```{r glm_nb_peason_res, fig.height = 4.5, fig.width = 5.5}
+par(mar = c(5, 5, 5, 2) + 0.2)
+plot((fitted(yfc.resp.date.nb.glm)), 
+     residuals(yfc.resp.date.nb.glm, type= "pearson"),
+     xlab = "Fitted values", 
+     ylab = "Pearson residual")
+```
