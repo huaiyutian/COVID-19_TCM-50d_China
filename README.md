@@ -9,7 +9,7 @@ An investigation of transmission control measures during the first 50 days of th
 
 Huaiyu Tian, Yonghong Liu, Yidan Li, Chieh-Hsi Wu, Bin Chen, Moritz U.G. Kraemer, Bingying Li, Jun Cai, Bo Xu, Qiqi Yang, Ben Wang, Peng Yang, Yujun Cui, Yimeng Song, Pai Zheng, Quanyi Wang, Ottar N. Bjornstad, Ruifu Yang, Bryan T. Grenfell, Oliver G. Pybus, and Christopher Dye.
 
-doi: https://doi.org/10.1101/2020.01.30.20019844
+DOI: 10.1126/science.abb6105
 
 ## Abstract
 
