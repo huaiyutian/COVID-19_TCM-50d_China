@@ -1,5 +1,4 @@
 function ydot = f4(t,y,theta,xdata)
-% ode system function for MCMC algae example
 
 
 gamma1(1:31)=theta(8); %time period from onset to isolation
